@@ -4,6 +4,6 @@
 <script>
 const N=5,V='52f975c5';
 Promise.all([...Array(N)].map((_,i)=>fetch('p'+(i+1)+'.bin?v='+V).then(r=>r.arrayBuffer())))
-.then(ps=>{const html=new TextDecoder().decode(new Blob(ps));document.open();document.write(html);document.close();})
+.then(async ps=>{const html=new TextDecoder().decode(await new Blob(ps).arrayBuffer());document.open();document.write(html);document.close();})
 .catch(e=>{document.getElementById('ld').textContent='加载失败，请刷新重试 ('+e+')'});
 </script></body></html>
