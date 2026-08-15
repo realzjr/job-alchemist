@@ -94,6 +94,7 @@ P12MojoyQlK5ZEluvgofrUAAJKbxZswhoTyBFM6IYzkqTFQZKB+YBIREOTHITX+IFKDh1KESiFhGAww1
       <button class="set-tile" onclick="location.href='mailto:3150641163@qq.com?subject=工位炼金师bug反馈'"><span class="st-ico">🐞</span>反馈bug</button>
       <button class="set-tile" onclick="replayTutorial()"><span class="st-ico">📺</span>重看教程</button>
       <button class="set-tile" onclick="resetAll()"><span class="st-ico">🔄</span>重新开始</button>
+      <button class="set-tile" onclick="openBoard()"><span class="st-ico">🏆</span>排行榜</button>
     </div>
     <button class="set-wide" onclick="goApply()">📮 我做好准备投简历了！</button>
   </div>
@@ -269,7 +270,7 @@ const roomIcon=r=>iconHTML(r.emoji,r.img||('rooms/'+r.id+'.webp'));
 // ==================== STATE ====================
 let S={currentRoom:0,revealed:[],discoveredItems:[],discoveredJobs:[],discoveredEggs:[],slots:[null,null],codexFilter:'base',bossReady:false,bossMet:false};
 function load(){try{const d=JSON.parse(localStorage.getItem(SAVE_KEY));if(d){S.revealed=d.revealed||[];S.discoveredItems=d.discoveredItems||[];S.discoveredJobs=d.discoveredJobs||[];S.discoveredEggs=d.discoveredEggs||[];S.bossReady=!!d.bossReady;S.bossMet=!!d.bossMet;S.tutorialDone=!!d.tutorialDone}}catch(e){}}
-function save(){localStorage.setItem(SAVE_KEY,JSON.stringify({revealed:S.revealed,discoveredItems:S.discoveredItems,discoveredJobs:S.discoveredJobs,discoveredEggs:S.discoveredEggs,bossReady:S.bossReady,bossMet:S.bossMet,tutorialDone:S.tutorialDone}))}
+function save(){localStorage.setItem(SAVE_KEY,JSON.stringify({revealed:S.revealed,discoveredItems:S.discoveredItems,discoveredJobs:S.discoveredJobs,discoveredEggs:S.discoveredEggs,bossReady:S.bossReady,bossMet:S.bossMet,tutorialDone:S.tutorialDone}));try{NET.syncSoon()}catch(e){}}
 
 // ==================== HELPERS ====================
 function jobCount(){return S.discoveredJobs.length}
@@ -580,7 +581,7 @@ function doCraft(){
   const jr=jobRecipeLookup[key];
   if(jr){
     const isNew=!S.discoveredJobs.includes(key);
-    if(isNew){S.discoveredJobs.push(key);save()}
+    if(isNew){S.discoveredJobs.push(key);save();NET.track('job_unlocked',{job:jr.job})}
     checkBossEgg();
     const formula=itemIcon(itemMap[jr.a])+itemMap[jr.a].name+' + '+itemIcon(itemMap[jr.b])+itemMap[jr.b].name;
     card.innerHTML=`<div class="p-emoji">${jobIcon(jr)}</div><div class="p-title">${jr.job}</div><div class="p-formula">${formula}</div><div class="p-tag ${isNew?'new':'dup'}">${isNew?'🎉 新岗位解锁！':'✅ 已解锁过'}</div><div class="p-desc">${jr.desc.replace(/\n/g,'<br>')}</div><button onclick="closeOv()">继续</button>`;
@@ -1209,6 +1210,7 @@ function initTicker(){
 function sharePoster(){
   // 从设置里点分享时先关掉设置弹窗，避免海报被压在设置下面（z-index 相同，DOM 顺序兜底也做了）
   document.getElementById('settingsOverlay').classList.remove('show');
+  try{NET.track('share')}catch(e){}
   const W=640,H=1024;
   const cv=document.createElement('canvas');cv.width=W;cv.height=H;
   const cx=cv.getContext('2d');
@@ -1252,7 +1254,9 @@ function showHelp(){
   card.innerHTML=`<div class="p-title">获取帮助</div><img src="${assetURL('decor/名片.webp')}" style="max-width:100%;max-height:62vh;object-fit:contain;border-radius:8px;margin:6px auto;display:block" draggable="false"><div style="text-align:center"><button onclick="closeOv()">关闭</button></div>`;
   ov.classList.add('show');
 }
-function likeAuthor(){
+async function likeAuthor(){
+  document.getElementById('settingsOverlay').classList.remove('show'); // 防 overlay 叠压
+  // 弹花动画：本地即时反馈，不等网络
   const d=document.createElement('div');
   d.className='like-flower';
   d.innerHTML='🌹<div style="font-size:.18em;letter-spacing:3px;color:#5c4423;margin-top:10px">谢谢你的喜欢！</div>';
@@ -1260,6 +1264,25 @@ function likeAuthor(){
   requestAnimationFrame(()=>d.classList.add('go'));
   setTimeout(()=>d.classList.add('out'),1400);
   setTimeout(()=>d.remove(),2000);
+  // 全服计数：每人限点一次（本地标记），已点过则只查总数
+  const ov=document.getElementById('resultOverlay'),card=document.getElementById('resultCard');
+  const liked=localStorage.getItem('jc_liked')==='1';
+  card.innerHTML='<div class="p-title">🌸 喜欢作者</div><div class="p-desc">统计中…</div>';
+  ov.classList.add('show');
+  try{
+    let n;
+    if(!liked){
+      const r=await NET.req('rpc/bump_like',{method:'POST',body:'{}'}); // 原子 +1，返回新值
+      n=await r.json();
+      localStorage.setItem('jc_liked','1');NET.track('like');
+    }else{
+      const r=await NET.req('likes?select=count&id=eq.1');
+      const j=await r.json();n=j[0]&&j[0].count;
+    }
+    card.innerHTML=`<div class="p-emoji">🌸</div><div class="p-title">谢谢喜欢！</div><div class="p-desc">已有 <b>${n}</b> 位朋友喜欢作者${liked?'（你已经点过啦）':''}</div><button onclick="closeOv()">关闭</button>`;
+  }catch(e){
+    card.innerHTML='<div class="p-emoji">🌸</div><div class="p-title">谢谢喜欢！</div><div class="p-desc">网络不佳，心意先记在本地啦</div><button onclick="closeOv()">关闭</button>';
+  }
 }
 
 // ==================== 场景缩放/拖动（手机屏幕小，放大找物品） ====================
@@ -1424,6 +1447,7 @@ function tutStart(){
 }
 function tutEnd(){TUT.active=false;TUT.rev=[];
   document.body.classList.remove('tut-on');
+  if(!S.tutorialDone)NET.track('tutorial_done');
   S.tutorialDone=true;save();document.querySelectorAll('.tut-spot').forEach(el=>el.classList.remove('tut-spot'));const l=document.getElementById('tutLayer');if(l)l.classList.remove('on');renderRoom()}
 function tutNotify(evt,data){
   if(!TUT.active)return;
@@ -1441,11 +1465,115 @@ function tutNotify(evt,data){
 window.addEventListener('resize',()=>{if(TUT.active)tutRender()});
 function maybeTutorial(){
   if(EDIT||PREVIEW)return;
+  if(location.search.includes('admin=1')){setTimeout(adminStats,800);return} // 隐藏统计页不走教程
   const fresh=!S.revealed.length&&!S.discoveredItems.length&&!S.discoveredJobs.length;
   if(location.search.includes('tut=1')||(fresh&&!S.tutorialDone))setTimeout(tutStart,400);
 }
 // 设置里的「重看教程」：已有进度也能复盘（揭示步会自动跳过已完成的）
 function replayTutorial(){document.getElementById('settingsOverlay').classList.remove('show');S.tutorialDone=false;tutStart()}
+
+// ==================== 后端（Supabase：排行榜/喜欢计数/玩家统计） ====================
+// 无登录轻量后端：玩家 = localStorage 里的随机 id；所有请求失败静默，绝不影响游戏本体。
+// 表结构见项目根 supabase_setup.sql（在 Supabase SQL Editor 里执行一次即可）
+const SB_URL='https://aefdlbdtxzdyyufsrhmf.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFlZmRsYmR0eHpkeXl1ZnNyaG1mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2ODYyODUsImV4cCI6MjEwMjI2MjI4NX0._wot7eWVoRJhL0vxdZyKPfYOcZZfr72Je2rewmcl5CE';
+const NET={
+  pid:localStorage.getItem('jc_pid'),
+  nick:localStorage.getItem('jc_nick')||'',
+  _t:null,
+  init(){
+    if(!this.pid){this.pid='p'+Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);localStorage.setItem('jc_pid',this.pid)}
+    this.track('visit');
+    this.syncSoon();
+  },
+  req(path,opt){
+    opt=opt||{};
+    opt.headers=Object.assign({'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json'},opt.headers||{});
+    return fetch(SB_URL+'/rest/v1/'+path,opt);
+  },
+  track(ev,meta){ // 行为事件，fire-and-forget
+    if(!this.pid)return;
+    this.req('events',{method:'POST',body:JSON.stringify({player_id:this.pid,event:ev,meta:meta||null})}).catch(()=>{});
+  },
+  syncSoon(){clearTimeout(this._t);this._t=setTimeout(()=>this.sync(),1500)}, // save() 每次都会调，防抖合并
+  sync(){ // 成绩快照 upsert（排行榜数据源）
+    if(!this.pid)return;
+    this.req('players',{method:'POST',headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify({
+      id:this.pid,nickname:this.nick,job_count:S.discoveredJobs.length,item_count:S.revealed.length,tutorial_done:!!S.tutorialDone
+    })}).catch(()=>{});
+  }
+};
+
+// 🏆 排行榜：全服解锁岗位 Top20 + 我的名次 + 可改昵称
+async function openBoard(){
+  document.getElementById('settingsOverlay').classList.remove('show'); // 防 overlay 叠压（海报弹窗踩过同款坑）
+  const ov=document.getElementById('resultOverlay'),card=document.getElementById('resultCard');
+  card.innerHTML='<div class="p-title">🏆 排行榜</div><div class="p-desc">加载中…</div>';
+  ov.classList.add('show');
+  try{
+    const mine=S.discoveredJobs.length;
+    const [topR,aheadR]=await Promise.all([
+      NET.req('players?select=id,nickname,job_count&job_count=gt.0&order=job_count.desc&limit=20'),
+      NET.req('players?select=id&job_count=gt.'+mine,{method:'HEAD',headers:{Prefer:'count=exact'}})
+    ]);
+    const list=await topR.json();
+    const ahead=+(((aheadR.headers.get('content-range'))||'*/0').split('/')[1]||0); // HEAD + count=exact → */N
+    const esc=s=>String(s).replace(/[<>&"]/g,'');
+    const rows=list.map((r,i)=>{
+      const medal=['🥇','🥈','🥉'][i]||(i+1);
+      const nm=(r.nickname||'').trim()||('打工人#'+r.id.slice(-4));
+      const me=r.id===NET.pid?' style="color:#a16207;font-weight:700"':'';
+      return `<div${me} style="display:flex;justify-content:space-between;padding:3px 6px;border-bottom:1px dashed #d8c8a2"><span>${medal} ${esc(nm)}</span><span>${r.job_count} 岗</span></div>`;
+    }).join('')||'<div class="p-desc">还没有人上榜，快来当第一名！</div>';
+    card.innerHTML=`<div class="p-title">🏆 排行榜</div>
+      <div style="text-align:left;max-height:42vh;overflow-y:auto;margin:6px 0">${rows}</div>
+      <div class="p-desc">你解锁了 ${mine} 个岗位${mine?'，全服第 <b>'+(ahead+1)+'</b> 名':'，合成第一个岗位即可上榜'}</div>
+      <div style="display:flex;gap:6px;justify-content:center;margin:8px 0">
+        <input id="nickInput" maxlength="12" placeholder="我的昵称（上榜显示）" value="${esc(NET.nick)}" style="width:10.5em;padding:5px 8px;border:2px solid #b8a276;border-radius:6px;background:#faf3e2;font-size:.9em">
+        <button onclick="saveNick()">保存昵称</button></div>
+      <button onclick="closeOv()">关闭</button>`;
+  }catch(e){
+    card.innerHTML='<div class="p-title">🏆 排行榜</div><div class="p-desc">网络不佳，稍后再试试</div><button onclick="closeOv()">关闭</button>';
+  }
+}
+function saveNick(){
+  const el=document.getElementById('nickInput');
+  NET.nick=((el&&el.value)||'').trim().slice(0,12);
+  localStorage.setItem('jc_nick',NET.nick);
+  NET.sync();
+  showToast('✅ 昵称已保存');
+  openBoard();
+}
+
+// 📊 隐藏统计页（?admin=1）：玩家数/教程完成率/解锁分布/喜欢数/最近事件
+async function adminStats(){
+  const ov=document.getElementById('resultOverlay'),card=document.getElementById('resultCard');
+  card.innerHTML='<div class="p-title">📊 玩家统计</div><div class="p-desc">加载中…</div>';
+  ov.classList.add('show');
+  try{
+    const cnt=async p=>{const r=await NET.req(p,{method:'HEAD',headers:{Prefer:'count=exact'}});return +(((r.headers.get('content-range'))||'*/0').split('/')[1]||0)};
+    const [total,tutDone,jobsR,likesR,evR]=await Promise.all([
+      cnt('players?select=id'),
+      cnt('players?select=id&tutorial_done=eq.true'),
+      NET.req('players?select=job_count&job_count=gt.0&limit=1000'),
+      NET.req('likes?select=count&id=eq.1'),
+      NET.req('events?select=event,created_at&order=created_at.desc&limit=12')
+    ]);
+    const jobs=(await jobsR.json()).map(r=>r.job_count);
+    const avg=jobs.length?(jobs.reduce((a,b)=>a+b,0)/jobs.length).toFixed(1):'0';
+    const likes=(await likesR.json())[0];
+    const evs=(await evR.json()).map(e=>`<div style="display:flex;justify-content:space-between;padding:2px 6px;border-bottom:1px dashed #d8c8a2"><span>${e.event}</span><span>${(e.created_at||'').slice(5,16).replace('T',' ')}</span></div>`).join('');
+    card.innerHTML=`<div class="p-title">📊 玩家统计</div><div style="text-align:left;font-size:.95em;line-height:2">
+      累计访问玩家：<b>${total}</b><br>教程完成：<b>${tutDone}</b>（${total?Math.round(tutDone/total*100):0}%）<br>
+      上榜玩家（≥1岗）：<b>${jobs.length}</b>　人均解锁 <b>${avg}</b> 岗　最多 <b>${jobs.length?Math.max(...jobs):0}</b> 岗<br>
+      🌸 喜欢作者：<b>${likes?likes.count:0}</b></div>
+      <div class="p-desc" style="margin-top:6px">最近事件</div>
+      <div style="text-align:left;max-height:28vh;overflow-y:auto;font-size:.85em">${evs||'暂无'}</div>
+      <button onclick="closeOv()">关闭</button>`;
+  }catch(e){
+    card.innerHTML='<div class="p-title">📊 玩家统计</div><div class="p-desc">加载失败（网络或权限）</div><button onclick="closeOv()">关闭</button>';
+  }
+}
 
 // ==================== INIT ====================
 function hideLoading(){
@@ -1459,7 +1587,7 @@ if(!window.GAME_DATA){
   document.body.innerHTML='<div style="padding:60px 30px;text-align:center;color:#f87171">⚠️ 未找到 data.js（GAME_DATA）<br><br><span style="color:#94a3b8;font-size:.85em">请确认 data.js 与 index.html 在同一目录</span></div>';
 }else{
   load();initUnlocks();checkBossEgg();_bossInvitePending=false;
-  probeImages().finally(()=>{renderRoom();renderSlots();renderCodex();hideLoading();initTicker();initZoom();maybeTutorial()});
+  probeImages().finally(()=>{renderRoom();renderSlots();renderCodex();hideLoading();initTicker();initZoom();NET.init();maybeTutorial()});
   if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>fixEdgeLabels()); // 像素字体加载后标签宽度会变，重新收边一次
   fitFrame();
   if(EDIT)initEditMode();
