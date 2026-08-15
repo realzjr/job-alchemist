@@ -1264,22 +1264,15 @@ async function likeAuthor(){
   requestAnimationFrame(()=>d.classList.add('go'));
   setTimeout(()=>d.classList.add('out'),1400);
   setTimeout(()=>d.remove(),2000);
-  // 全服计数：每人限点一次（本地标记），已点过则只查总数
+  // 全服计数：只记点击数，不限人数/次数，每点一次 +1
   const ov=document.getElementById('resultOverlay'),card=document.getElementById('resultCard');
-  const liked=localStorage.getItem('jc_liked')==='1';
   card.innerHTML='<div class="p-title">🌸 喜欢作者</div><div class="p-desc">统计中…</div>';
   ov.classList.add('show');
   try{
-    let n;
-    if(!liked){
-      const r=await NET.req('rpc/bump_like',{method:'POST',body:'{}'}); // 原子 +1，返回新值
-      n=await r.json();
-      localStorage.setItem('jc_liked','1');NET.track('like');
-    }else{
-      const r=await NET.req('likes?select=count&id=eq.1');
-      const j=await r.json();n=j[0]&&j[0].count;
-    }
-    card.innerHTML=`<div class="p-emoji">🌸</div><div class="p-title">谢谢喜欢！</div><div class="p-desc">已有 <b>${n}</b> 位朋友喜欢作者${liked?'（你已经点过啦）':''}</div><button onclick="closeOv()">关闭</button>`;
+    const r=await NET.req('rpc/bump_like',{method:'POST',body:'{}'}); // 原子 +1，返回新值
+    const n=await r.json();
+    NET.track('like');
+    card.innerHTML=`<div class="p-emoji">🌸</div><div class="p-title">谢谢喜欢！</div><div class="p-desc">已经收到 <b>${n}</b> 次喜欢啦</div><button onclick="closeOv()">关闭</button>`;
   }catch(e){
     card.innerHTML='<div class="p-emoji">🌸</div><div class="p-title">谢谢喜欢！</div><div class="p-desc">网络不佳，心意先记在本地啦</div><button onclick="closeOv()">关闭</button>';
   }
