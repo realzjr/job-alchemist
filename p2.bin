@@ -94,7 +94,6 @@ HULnw1a7lK489ctiYpC1VbztYoFsF96Ky9uft+9acnehxTZacW4moWwR3z6Snrnw871vnV9D88P12Moj
       <button class="set-tile" onclick="location.href='mailto:3150641163@qq.com?subject=工位炼金师bug反馈'"><span class="st-ico">🐞</span>反馈bug</button>
       <button class="set-tile" onclick="replayTutorial()"><span class="st-ico">📺</span>重看教程</button>
       <button class="set-tile" onclick="resetAll()"><span class="st-ico">🔄</span>重新开始</button>
-      <button class="set-tile" onclick="openBoard()"><span class="st-ico">🏆</span>排行榜</button>
     </div>
     <button class="set-wide" onclick="goApply()">📮 我做好准备投简历了！</button>
   </div>
@@ -1210,10 +1209,21 @@ function initTicker(){
 }
 
 // ==================== 分享海报 ====================
-function sharePoster(){
+async function sharePoster(){
   // 从设置里点分享时先关掉设置弹窗，避免海报被压在设置下面（z-index 相同，DOM 顺序兜底也做了）
   document.getElementById('settingsOverlay').classList.remove('show');
   try{NET.track('share')}catch(e){}
+  // 拉全服分位：我超过百分之多少的玩家（08-15 定稿，排行榜不做独立页，只在分享海报体现）。
+  // 网络失败静默降级为普通文案，不挡海报生成。
+  let pctLine='你也来试试吧！';
+  try{
+    const mine=jobCount();
+    if(mine>0){
+      const cnt=async p=>{const r=await NET.req(p,{method:'HEAD',headers:{Prefer:'count=exact'}});return +(((r.headers.get('content-range'))||'*/0').split('/')[1]||0)};
+      const [below,total]=await Promise.all([cnt('players?select=id&job_count=lt.'+mine),cnt('players?select=id')]);
+      if(total>0)pctLine='已超过全服 '+Math.max(1,Math.floor(below/total*100))+'% 的打工人！';
+    }
+  }catch(e){}
   const W=640,H=1024;
   const cv=document.createElement('canvas');cv.width=W;cv.height=H;
   const cx=cv.getContext('2d');
@@ -1228,7 +1238,7 @@ function sharePoster(){
     cx.fillText('工位炼金师',W/2,H-266);
     cx.font='28px "Fusion Pixel","PingFang SC","Microsoft YaHei",sans-serif';
     cx.fillText('我在工位炼金师中解锁了 '+jobCount()+' 个岗位',W/2,H-208);
-    cx.fillText('你也来试试吧！',W/2,H-168);
+    cx.fillText(pctLine,W/2,H-168);
     const finish=()=>{
       document.getElementById('posterBox').innerHTML='<img src="'+cv.toDataURL('image/png')+'" style="width:100%;border:2px solid #8a6d3b" alt="分享海报">';
       document.getElementById('posterOverlay').classList.add('show');
@@ -1499,47 +1509,6 @@ const NET={
     })}).catch(()=>{});
   }
 };
-
-// 🏆 排行榜：全服解锁岗位 Top20 + 我的名次 + 可改昵称
-async function openBoard(){
-  document.getElementById('settingsOverlay').classList.remove('show'); // 防 overlay 叠压（海报弹窗踩过同款坑）
-  const ov=document.getElementById('resultOverlay'),card=document.getElementById('resultCard');
-  card.innerHTML='<div class="p-title">🏆 排行榜</div><div class="p-desc">加载中…</div>';
-  ov.classList.add('show');
-  try{
-    const mine=S.discoveredJobs.length;
-    const [topR,aheadR]=await Promise.all([
-      NET.req('players?select=id,nickname,job_count&job_count=gt.0&order=job_count.desc&limit=20'),
-      NET.req('players?select=id&job_count=gt.'+mine,{method:'HEAD',headers:{Prefer:'count=exact'}})
-    ]);
-    const list=await topR.json();
-    const ahead=+(((aheadR.headers.get('content-range'))||'*/0').split('/')[1]||0); // HEAD + count=exact → */N
-    const esc=s=>String(s).replace(/[<>&"]/g,'');
-    const rows=list.map((r,i)=>{
-      const medal=['🥇','🥈','🥉'][i]||(i+1);
-      const nm=(r.nickname||'').trim()||('打工人#'+r.id.slice(-4));
-      const me=r.id===NET.pid?' style="color:#a16207;font-weight:700"':'';
-      return `<div${me} style="display:flex;justify-content:space-between;padding:3px 6px;border-bottom:1px dashed #d8c8a2"><span>${medal} ${esc(nm)}</span><span>${r.job_count} 岗</span></div>`;
-    }).join('')||'<div class="p-desc">还没有人上榜，快来当第一名！</div>';
-    card.innerHTML=`<div class="p-title">🏆 排行榜</div>
-      <div style="text-align:left;max-height:42vh;overflow-y:auto;margin:6px 0">${rows}</div>
-      <div class="p-desc">你解锁了 ${mine} 个岗位${mine?'，全服第 <b>'+(ahead+1)+'</b> 名':'，合成第一个岗位即可上榜'}</div>
-      <div style="display:flex;gap:6px;justify-content:center;margin:8px 0">
-        <input id="nickInput" maxlength="12" placeholder="我的昵称（上榜显示）" value="${esc(NET.nick)}" style="width:10.5em;padding:5px 8px;border:2px solid #b8a276;border-radius:6px;background:#faf3e2;font-size:.9em">
-        <button onclick="saveNick()">保存昵称</button></div>
-      <button onclick="closeOv()">关闭</button>`;
-  }catch(e){
-    card.innerHTML='<div class="p-title">🏆 排行榜</div><div class="p-desc">网络不佳，稍后再试试</div><button onclick="closeOv()">关闭</button>';
-  }
-}
-function saveNick(){
-  const el=document.getElementById('nickInput');
-  NET.nick=((el&&el.value)||'').trim().slice(0,12);
-  localStorage.setItem('jc_nick',NET.nick);
-  NET.sync();
-  showToast('✅ 昵称已保存');
-  openBoard();
-}
 
 // 📊 隐藏统计页（?admin=1）：玩家数/教程完成率/解锁分布/喜欢数/最近事件
 async function adminStats(){
